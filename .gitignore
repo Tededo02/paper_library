@@ -41,6 +41,10 @@ PDFs/
 Caches/
 .local/
 
+# Keep only the README screenshot
+/img/*
+!/img/paper-library.png
+
 # Temporary files and logs
 __pycache__/
 *.py[cod]

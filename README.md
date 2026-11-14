@@ -1,22 +1,25 @@
 # Paper Library
 
-App nativa per macOS per organizzare articoli scientifici in corsi, importare da arXiv o PDF locali, leggere e annotare i documenti e generare riassunti AI sul Mac. La libreria è salvata in locale; l’interfaccia è in inglese.
+Native macOS app to organize research papers into courses, import from arXiv or local PDFs, read papers, take notes, and generate on-device AI summaries. Your library is stored locally; the interface is in English.
 
-## Requisiti
+![Paper Library screenshot](img/paper-library.png)
 
-- macOS 26 o successivo.
-- Xcode completo con SDK macOS 27 (verificato con Xcode 27.2); i soli Command Line Tools non bastano.
-- Per i riassunti AI: Mac compatibile con Apple Intelligence, funzione attiva e modello disponibile.
+## Requirements
 
-## Installazione
+- macOS 26 or later.
+- Full Xcode with the macOS 27 SDK (verified with Xcode 27.2); Command Line Tools alone are insufficient.
+- AI features: **Apple silicon M1 or later**, with Apple Intelligence enabled, its model downloaded, and device/Siri set to the same supported language.
+- On macOS 27, **AFM 3 Core Advanced** requires **M3 or later and at least 12 GB unified memory**.
 
-Scarica o clona il repository, apri il Terminale nella cartella del progetto ed esegui:
+## Installation
+
+Download or clone this repository, open Terminal in the project folder, and run:
 
 ```sh
 bash Scripts/build-app.sh release
 open "build/release/Paper Library.app"
 ```
 
-Per aggiornare, chiudi l’app e ripeti i comandi. La libreria rimane in `~/Library/Application Support/local.paperlibrary.app/`.
+To update, quit the app and repeat these commands. Your library stays in `~/Library/Application Support/local.paperlibrary.app/`.
 
-Per verificare il progetto: `bash Scripts/verify.sh`. Dettagli in [ARCHITECTURE.md](ARCHITECTURE.md) e [Documentation](Documentation/).
+Verify the project with `bash Scripts/verify.sh`. See [ARCHITECTURE.md](ARCHITECTURE.md) and [Documentation](Documentation/) for details.
