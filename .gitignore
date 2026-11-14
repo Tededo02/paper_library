@@ -1,0 +1,60 @@
+# Build products and Swift caches
+/.build/
+/.swiftpm/
+/build/
+DerivedData/
+*.app/
+*.xcarchive/
+*.xcresult/
+*.dSYM/
+*.dSYM.zip
+*.dmg
+*.pkg
+
+# Xcode user settings
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Local editors and macOS metadata
+/.vscode/
+/.idea/
+.DS_Store
+._*
+.Spotlight-V100/
+.Trashes/
+*~
+
+# Local library data and backups
+*.store
+*.store-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.pdf
+Backups/
+PDFs/
+Caches/
+.local/
+
+# Temporary files and logs
+__pycache__/
+*.py[cod]
+*.tmp
+*.log
+
+# Local environment and signing credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.p12
+*.p8
+*.pem
+*.key
+*.mobileprovision
+*.provisionprofile
