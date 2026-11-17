@@ -50,6 +50,35 @@ public struct PDFFileReference: Sendable, Equatable {
 }
 
 public enum PDFSourcePolicy {
+    public static func canDownload(_ url: URL) -> Bool { (try? validateDownload(url)) != nil }
+
+    public static func validateDownload(_ url: URL, version: Int? = nil) throws {
+        if url.host == "arxiv.org" {
+            let id = try validate(url)
+            guard version == nil || id.version == version else { throw PDFLibraryError.invalidSource }
+            return
+        }
+        guard DOIPublicURL.validated(url) != nil,
+              let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              !parts.percentEncodedPath.contains("%"),
+              !parts.path.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) else { throw PDFLibraryError.invalidSource }
+        let query = parts.queryItems ?? []
+        switch parts.host {
+        case "www.mdpi.com", "mdpi.com":
+            guard parts.path.hasSuffix("/pdf"), query.allSatisfy({ $0.name == "version" && $0.value?.allSatisfy(\.isNumber) == true }) else { throw PDFLibraryError.invalidSource }
+        case "mdpi-res.com", "www.mdpi-res.com":
+            guard parts.path.hasPrefix("/d_attachment/"), parts.path.hasSuffix(".pdf"),
+                  query.allSatisfy({ $0.name == "version" && $0.value?.allSatisfy(\.isNumber) == true }) else { throw PDFLibraryError.invalidSource }
+        case "pmc.ncbi.nlm.nih.gov":
+            guard parts.path.hasPrefix("/articles/PMC"), parts.path.contains("/pdf/"), parts.path.hasSuffix(".pdf"), query.isEmpty else { throw PDFLibraryError.invalidSource }
+        case "journals.plos.org":
+            guard parts.path.range(of: #"^/[a-z]+/article/file$"#, options: .regularExpression) != nil,
+                  query.count == 2, query.first(where: { $0.name == "type" })?.value == "print",
+                  let raw = query.first(where: { $0.name == "id" })?.value, (try? DOIIdentifier(raw)) != nil else { throw PDFLibraryError.invalidSource }
+        default: throw PDFLibraryError.invalidSource
+        }
+    }
+
     public static func validate(_ url: URL) throws -> ArxivIdentifier {
         guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), parts.scheme == "https",
               parts.host == "arxiv.org", parts.port == nil, parts.user == nil, parts.password == nil,

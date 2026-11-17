@@ -115,6 +115,12 @@
 "import.title" = "Add Papers";
 "import.source" = "Import Source";
 "import.linkSource" = "arXiv / DOI Link";
+"paper.refreshDetails" = "Refresh Abstract and PDF";
+"paper.refreshingDetails" = "Finding abstract and available PDF…";
+"paper.abstractUnavailable" = "No abstract has been retrieved yet. Refresh the paper details to check additional sources.";
+"pdf.getFromPublisher" = "Get PDF from Publisher…";
+"pdf.publisherAccessHint" = "No public PDF was found. The publisher may require institutional access. You can attach a PDF you have downloaded.";
+"pdf.attach" = "Attach PDF…";
 "import.pdfSource" = "PDF File";
 "import.choosePDF" = "Choose PDF…";
 "import.changePDF" = "Change…";
@@ -165,7 +171,7 @@
 "import.moreHistory" = "Show Earlier Imports";
 
 "pdf.error.http" = "The PDF download returned an HTTP error:";
-"pdf.error.invalidSource" = "PDF source not allowed: an arXiv HTTPS URL with an explicit version is required.";
+"pdf.error.invalidSource" = "This PDF source does not support direct download. Open the publisher page and attach the downloaded PDF.";
 "pdf.error.invalidFile" = "The file is not a readable PDF or is password protected.";
 "pdf.error.tooLarge" = "The PDF exceeds the configured size limit.";
 "pdf.error.diskSpace" = "There is not enough free space to save the PDF safely.";

@@ -99,13 +99,17 @@ extension LibraryRepository {
                     paper.doi = requested.canonical
                     if let journal = metadata.journalReference { paper.journalReference = journal }
                 }
+                if paper.abstract.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !metadata.abstract.isEmpty {
+                    paper.abstract = metadata.abstract
+                }
                 if isNew || paper.provider == "doi" {
                     paper.provider = "doi"; paper.providerIdentifier = requested.canonical
                     paper.identityKey = "doi:\(requested.canonical)"
                     paper.canonicalURL = requested.canonicalURL.absoluteString; paper.sourceURL = job.input
                     if let date = metadata.publishedAt { paper.publicationDate = date }
                     if !metadata.categories.isEmpty { paper.categories = metadata.categories }
-                    paper.metadataStatusRaw = "fetched"
+                    if let pdf = metadata.pdfURL { paper.pdfSourceURL = pdf.absoluteString }
+                    paper.metadataStatusRaw = metadata.enrichmentComplete ? "doiEnriched" : "fetched"
                 }
                 paper.updatedAt = Date()
             }

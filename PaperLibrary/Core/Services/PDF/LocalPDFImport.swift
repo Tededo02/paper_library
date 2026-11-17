@@ -88,7 +88,9 @@ extension PDFFileStore {
 
     private func localFileSize(_ source: URL, limits: PDFLimits) throws -> Int64 {
         guard source.isFileURL else { throw PDFLibraryError.invalidFile }
-        let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        var current = source
+        current.removeAllCachedResourceValues()
+        let values = try current.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true, let size = values.fileSize, size > 5 else { throw PDFLibraryError.invalidFile }
         guard Int64(size) <= limits.maximumBytes else { throw PDFLibraryError.tooLarge }
         let input = try FileHandle(forReadingFrom: source)

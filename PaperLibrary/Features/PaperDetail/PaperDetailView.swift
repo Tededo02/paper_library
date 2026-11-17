@@ -8,6 +8,11 @@ struct PaperDetailView: View {
     let paper: Paper
     let edit: () -> Void
     @State private var tab = "overview"
+    private var detailJob: ImportJob? {
+        guard paper.provider == "doi", let raw = paper.providerIdentifier else { return nil }
+        return repository.importJobs.last { $0.canonicalIdentifier == raw }
+    }
+    private var refreshingDetails: Bool { detailJob.map { [.pending, .inProgress].contains($0.state) } ?? false }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,6 +28,8 @@ struct PaperDetailView: View {
                     else if let ai = state.ai { AIControls(state: state, coordinator: ai, paper: paper) }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.bottom, 24)
             }
+        }.task(id: paper.id) {
+            state.perform { try state.imports?.recoverDOIDetails(paperID: paper.id) }
         }
     }
 
@@ -62,6 +69,11 @@ struct PaperDetailView: View {
                     .accessibilityLabel(Strings.text(paper.isFavorite ? "paper.favoriteRemove" : "paper.favoriteAdd"))
                 Menu {
                     Button(Strings.text("paper.edit"), action: edit)
+                    if paper.provider == "doi" {
+                        Button(Strings.text("paper.refreshDetails")) {
+                            state.perform { try state.imports?.recoverDOIDetails(paperID: paper.id, force: true) }
+                        }.disabled(refreshingDetails)
+                    }
                     if !repository.courses.isEmpty {
                         Menu(Strings.text("paper.courses")) {
                             ForEach(repository.courses, id: \.id) { course in
@@ -81,11 +93,26 @@ struct PaperDetailView: View {
                     .help(Strings.text("paper.actions")).accessibilityLabel(Strings.text("paper.actions"))
             }
             if let pdfs = state.pdfs { PDFControls(state: state, coordinator: pdfs, paper: paper) }
+            if refreshingDetails {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(Strings.text("paper.refreshingDetails")).font(.caption).foregroundStyle(.secondary)
+                }
+            } else if let job = detailJob, job.state == .failed, let message = job.errorMessage {
+                Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
             Divider()
             if !paper.abstract.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(Strings.text("paper.abstract")).font(.headline)
                     Text(paper.abstract).textSelection(.enabled).lineSpacing(3)
+                }
+            } else if paper.provider == "doi" && !refreshingDetails {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(Strings.text("paper.abstractUnavailable")).font(.callout).foregroundStyle(.secondary)
+                    Button(Strings.text("paper.refreshDetails")) {
+                        state.perform { try state.imports?.recoverDOIDetails(paperID: paper.id, force: true) }
+                    }
                 }
             }
             let courses = repository.courses.filter { repository.courseIDs(paperID: paper.id).contains($0.id) }

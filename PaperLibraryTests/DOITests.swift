@@ -18,6 +18,11 @@ enum DOIFixtures {
             "creators": [["givenName": "First", "familyName": "Author", "name": "Author, First"]], "publicationYear": 2023,
             "descriptions": [["descriptionType": "Abstract", "description": "A deposited abstract."]]]]])
     }
+    static func openalex(doi: String = ieee, index: [String: [Int]] = ["Source": [0], "abstract.": [1]], pdf: String? = nil, isOA: Bool = false) throws -> Data {
+        var work: [String: Any] = ["doi": "https://doi.org/\(doi)", "abstract_inverted_index": index]
+        if let pdf { work["best_oa_location"] = ["is_oa": isOA, "pdf_url": pdf] }
+        return try JSONSerialization.data(withJSONObject: work)
+    }
 }
 
 actor FixtureDOIProvider: DOIMetadataProviding {
@@ -112,7 +117,7 @@ struct DOITests {
     @Test func clientRequestsOnlyMetadataAndFallsBackToDataCiteAfterCrossref404() async throws {
         let id = try DOIIdentifier("10.5281/zenodo.1234")
         let transport = MockDOITransport([(404, Data(), [:]), (200, try DOIFixtures.datacite(), [:])])
-        let metadata = try await DOIClient(transport: transport, clock: TestArxivClock()).fetch(id)
+        let metadata = try await DOIClient(transport: transport, clock: TestArxivClock(), enrichmentEnabled: false).fetch(id)
         #expect(metadata.authors == ["First Author"] && metadata.abstract == "A deposited abstract.")
         #expect(metadata.publishedAt == ISO8601DateFormatter().date(from: "2023-01-01T00:00:00Z"))
         let requests = await transport.requests
@@ -125,7 +130,7 @@ struct DOITests {
         let id = try DOIIdentifier(DOIFixtures.mdpi)
         let clock = TestArxivClock()
         let retry = MockDOITransport([(429, Data(), ["retry-after": "9"]), (200, try DOIFixtures.crossref(), [:])])
-        _ = try await DOIClient(transport: retry, clock: clock).fetch(id)
+        _ = try await DOIClient(transport: retry, clock: clock, enrichmentEnabled: false).fetch(id)
         #expect(await clock.delays == [9])
         let unavailable = MockDOITransport(Array(repeating: (503, Data(), [:]), count: 3))
         await #expect(throws: DOIError.http(503)) { try await DOIClient(transport: unavailable, clock: TestArxivClock()).fetch(id) }
@@ -140,6 +145,56 @@ struct DOITests {
         await #expect(throws: DOIError.invalidResponse) { try await DOIClient(transport: wrong, clock: TestArxivClock()).fetch(id) }
         let redirect = MockDOITransport([(200, try DOIFixtures.crossref(), [:])], responseURL: URL(string: "https://evil.test")!)
         await #expect(throws: DOIError.redirectRejected) { try await DOIClient(transport: redirect, clock: TestArxivClock()).fetch(id) }
+    }
+}
+
+extension DOITests {
+    @Test func missingCrossrefAbstractIsRecoveredByDOIWithoutInventingAPublicPDF() async throws {
+        let transport = MockDOITransport([(200, try DOIFixtures.crossref(doi: DOIFixtures.ieee, abstract: nil), [:]),
+            (200, try DOIFixtures.openalex(pdf: "https://www.mdpi.com/1424-8220/24/2/436/pdf", isOA: false), [:])])
+        let record = try await DOIClient(transport: transport, clock: TestArxivClock()).fetch(DOIIdentifier(DOIFixtures.ieee))
+        #expect(record.abstract == "Source abstract." && record.enrichmentComplete)
+        #expect(record.pdfURL == nil && record.title == "A vehicle estimation study")
+        let requests = await transport.requests
+        #expect(requests.map { $0.url?.host } == ["api.crossref.org", "api.openalex.org"])
+        for request in requests { try DOINetworkPolicy.validate(#require(request.url)) }
+    }
+
+    @Test func enrichmentKeepsPublisherAbstractAndFindsVerifiedOpenPDF() async throws {
+        let pdf = "https://www.mdpi.com/1424-8220/24/2/436/pdf?version=1704898430"
+        let transport = MockDOITransport([(200, try DOIFixtures.crossref(), [:]),
+            (200, try DOIFixtures.openalex(doi: DOIFixtures.mdpi, pdf: pdf, isOA: true), [:])])
+        let record = try await DOIClient(transport: transport, clock: TestArxivClock()).fetch(DOIIdentifier(DOIFixtures.mdpi))
+        #expect(record.abstract == "Velocity & slip estimation." && record.pdfURL?.absoluteString == pdf)
+        #expect(record.enrichmentComplete)
+    }
+
+    @Test func optionalEnrichmentFailureOrWrongDOIPreservesBaseImport() async throws {
+        let cases: [(Int, Data)] = [(503, Data()), (404, Data()), (200, Data("malformed".utf8)),
+            (200, try DOIFixtures.openalex(doi: DOIFixtures.mdpi)), (200, try DOIFixtures.openalex(index: ["word": [-1]]))]
+        for (status, body) in cases {
+            let transport = MockDOITransport([(200, try DOIFixtures.crossref(doi: DOIFixtures.ieee, abstract: nil), [:]),
+                (status, body, [:]), (status, body, [:]), (status, body, [:])])
+            let record = try await DOIClient(transport: transport, clock: TestArxivClock()).fetch(DOIIdentifier(DOIFixtures.ieee))
+            #expect(record.title == "A vehicle estimation study" && record.abstract.isEmpty && !record.enrichmentComplete)
+        }
+    }
+
+    @Test func invertedIndexRejectsGapsCollisionsAndUnboundedPositions() throws {
+        for index in [["word": [1]], ["first": [0], "second": [0]], ["word": [32_000]], ["": [0]], ["word": []]] {
+            #expect(throws: DOIError.invalidResponse) { try OpenAlexParser.parse(DOIFixtures.openalex(index: index), requested: DOIIdentifier(DOIFixtures.ieee)) }
+        }
+        let record = try OpenAlexParser.parse(DOIFixtures.openalex(index: ["one": [0, 2], "two": [1]]), requested: DOIIdentifier(DOIFixtures.ieee))
+        #expect(record.abstract == "one two one")
+    }
+
+    @Test func publicPDFReferencesRejectPrivateAndCredentialedURLs() throws {
+        for url in ["http://www.mdpi.com/paper.pdf", "https://127.0.0.1/paper.pdf", "https://[::1]/paper.pdf", "https://library.local/paper.pdf", "https://localhost/paper.pdf", "https://user:password@www.mdpi.com/paper.pdf", "https://www.mdpi.com:443/paper.pdf"] {
+            let result = try OpenAlexParser.parse(DOIFixtures.openalex(pdf: url, isOA: true), requested: DOIIdentifier(DOIFixtures.ieee))
+            #expect(result.pdfURL == nil)
+        }
+        #expect(throws: DOIError.self) { try DOINetworkPolicy.validate(URL(string: "https://api.openalex.org/works?search=private")!) }
+        #expect(throws: DOIError.self) { try DOINetworkPolicy.validate(URL(string: "http://api.openalex.org/works/https://doi.org/10.3390%2Fs24020436")!) }
     }
 }
 
@@ -284,6 +339,32 @@ struct DOIImportTests {
         try repo.enqueueImports(ImportInput.parse("10.1234/source"), destinationCourseID: nil, assignExisting: true, refreshMetadata: true)
         try repo.deletePapers(ids: [paper.id])
         #expect(repo.importJobs.last?.state == .cancelled)
+    }
+}
+
+extension DOIImportTests {
+    @Test func existingDOIPaperIsRepairedOnceAndManualTitleNotesAndCoursesSurvive() async throws {
+        let config = try configuration()
+        defer { try? FileManager.default.removeItem(at: config.root) }
+        let repo = try LibraryRepository(store: LibraryStore.open(configuration: config))
+        let course = try repo.addCourse(name: "Vehicle estimation")
+        let original = ImportCoordinator(repository: repo, provider: FixtureArxivProvider(), doiProvider: FixtureDOIProvider())
+        try original.enqueue(text: DOIFixtures.ieee, destinationCourseID: course.id, assignExisting: true, refreshMetadata: false)
+        await original.waitUntilIdle()
+        let paper = try #require(repo.papers.first)
+        try repo.updateMetadata(paperID: paper.id, draft: PaperDraft(title: "My title", authors: paper.authors, abstract: "", doi: paper.doi))
+        try repo.saveNotes(paperID: paper.id, notes: "My notes")
+        let transport = MockDOITransport([(200, try DOIFixtures.crossref(doi: DOIFixtures.ieee, abstract: nil), [:]),
+            (200, try DOIFixtures.openalex(), [:])])
+        let repair = ImportCoordinator(repository: repo, provider: FixtureArxivProvider(), doiProvider: DOIClient(transport: transport, clock: TestArxivClock()))
+        try repair.recoverDOIDetails(paperID: paper.id)
+        await repair.waitUntilIdle()
+        #expect(paper.title == "My title" && paper.abstract == "Source abstract." && paper.notes == "My notes")
+        #expect(paper.metadataStatusRaw == "doiEnriched" && repo.papers.count == 1 && repo.courseIDs(paperID: paper.id) == [course.id])
+        #expect(paper.pdfDownloadURL == nil && paper.publisherPDFURL?.host == "doi.org")
+        try repair.recoverDOIDetails(paperID: paper.id)
+        await repair.waitUntilIdle()
+        #expect(await transport.requests.count == 2)
     }
 }
 

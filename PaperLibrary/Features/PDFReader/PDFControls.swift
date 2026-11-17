@@ -2,12 +2,14 @@ import AppKit
 import PaperLibraryCore
 import PaperLibrarySupport
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct PDFControls: View {
     let state: ApplicationState
     let coordinator: PDFCoordinator
     let paper: Paper
     @State private var removing: PDFDocumentRecord?
+    @State private var showAttachmentPicker = false
     private var repository: LibraryRepository { coordinator.repository }
     private var records: [PDFDocumentRecord] { repository.pdfRecords(paperID: paper.id) }
     private var jobs: [PDFProcessingJob] { repository.pdfJobs.filter { $0.paperID == paper.id } }
@@ -41,11 +43,29 @@ struct PDFControls: View {
                     } label: { Image(systemName: "ellipsis") }
                         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                         .help(Strings.text("pdf.actions")).accessibilityLabel(Strings.text("pdf.actions"))
-                } else if paper.provider == "arxiv" && paper.resolvedVersion != nil && activeJob == nil && latestIssue == nil {
+                } else if paper.pdfDownloadURL != nil && activeJob == nil && latestIssue == nil {
                     Button { state.perform { try coordinator.enqueue(paperID: paper.id) } } label: {
                         Label(Strings.text("pdf.download"), systemImage: "arrow.down.circle")
                             .frame(maxWidth: .infinity)
                     }.buttonStyle(.borderedProminent).controlSize(.large)
+                } else if paper.provider == "doi", let url = paper.publisherPDFURL, activeJob == nil {
+                    Link(destination: url) {
+                        Label(Strings.text("pdf.getFromPublisher"), systemImage: "arrow.up.right.square")
+                            .frame(maxWidth: .infinity)
+                    }.buttonStyle(.borderedProminent).controlSize(.large)
+                }
+            }
+            if paper.provider == "doi" {
+                if records.isEmpty && paper.pdfSourceURL == nil {
+                    Text(Strings.text("pdf.publisherAccessHint")).font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                    if (paper.pdfDownloadURL != nil || !records.isEmpty), let url = paper.publisherPDFURL {
+                        Link(Strings.text("pdf.getFromPublisher"), destination: url).font(.caption)
+                    }
+                    Button(Strings.text("pdf.attach")) { showAttachmentPicker = true }
+                        .font(.caption).disabled(coordinator.isImporting)
+                    if coordinator.isImporting { ProgressView().controlSize(.small) }
                 }
             }
             if let job = activeJob {
@@ -68,6 +88,19 @@ struct PDFControls: View {
             }
             if let error = coordinator.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
         }
+        .fileImporter(isPresented: $showAttachmentPicker, allowedContentTypes: [.pdf]) { result in
+            switch result {
+            case .success(let url):
+                Task {
+                    do {
+                        let draft = PaperDraft(title: paper.title, authors: paper.authors, abstract: paper.abstract, doi: paper.doi)
+                        _ = try await coordinator.importLocalPDF(from: url, draft: draft, attachingTo: paper.id)
+                    } catch { state.message = error.localizedDescription }
+                }
+            case .failure(let error):
+                if (error as? CocoaError)?.code != .userCancelled { state.message = error.localizedDescription }
+            }
+        }
         .confirmationDialog(Strings.text("pdf.remove"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) { record in
             Button(Strings.text("action.delete"), role: .destructive) {
                 state.readerRecordID = nil
@@ -83,7 +116,7 @@ struct PDFControls: View {
         Menu(Strings.text("action.advanced")) {
             Text(Strings.text("pdf.extraction.\(record.extractionStatus)"))
             Button(Strings.text("pdf.extract")) { state.perform { try coordinator.enqueue(paperID: paper.id, operation: "extract", version: record.version) } }
-            if paper.provider == "arxiv" {
+            if paper.pdfDownloadURL != nil {
                 Button(Strings.text("pdf.redownload")) { state.perform { try coordinator.enqueue(paperID: paper.id, version: record.version) } }
             }
         }

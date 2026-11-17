@@ -40,21 +40,24 @@ public final class PDFCoordinator {
         try Task.checkCancellation()
         return PDFMetadataValidation.grounded(result, source: metadata.frontMatter, needsAuthors: needsAuthors, needsAbstract: needsAbstract)
     }
-    public func importLocalPDF(from source: URL, draft: PaperDraft, courseIDs: Set<UUID> = []) async throws -> UUID {
+    public func importLocalPDF(from source: URL, draft: PaperDraft, courseIDs: Set<UUID> = [], attachingTo targetPaperID: UUID? = nil) async throws -> UUID {
         guard localImport == nil, !stopping else { throw LibraryError.invalidInput }
+        if let targetPaperID, repository.paper(id: targetPaperID) == nil { throw LibraryError.missingRecord }
         try repository.validateLocalPDF(draft: draft, courseIDs: courseIDs)
         let task = Task { @MainActor in
             let staged = try await files.stageLocal(source, limits: limits)
             var installed: PDFFileReference?
             do {
                 try Task.checkCancellation()
-                let match = repository.pdfRecords.first { $0.checksum == staged.checksum && repository.paper(id: $0.paperID) != nil }
-                let paperID = match?.paperID ?? UUID()
-                let version = match?.version ?? 1
+                let match = repository.pdfRecords.first { $0.checksum == staged.checksum && repository.paper(id: $0.paperID) != nil && (targetPaperID == nil || $0.paperID == targetPaperID) }
+                let paperID = targetPaperID ?? match?.paperID ?? UUID()
+                let nextVersion = targetPaperID == nil ? 1 : (repository.pdfRecords.filter { $0.paperID == paperID }.map(\.version).max() ?? 0) + 1
+                let version = match?.version ?? nextVersion
                 let reference = try await files.install(staged: staged.url, paperID: paperID, version: version, limits: limits)
                 installed = reference
                 try Task.checkCancellation()
                 guard !stopping, reference.checksum == staged.checksum else { throw CancellationError() }
+                if let targetPaperID, repository.paper(id: targetPaperID) == nil { throw LibraryError.missingRecord }
                 let id = try repository.completeLocalPDF(paperID: paperID, version: version, reference: reference, draft: draft, courseIDs: courseIDs, filename: source.lastPathComponent)
                 start()
                 return id

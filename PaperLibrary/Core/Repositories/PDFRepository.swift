@@ -14,14 +14,15 @@ extension LibraryRepository {
     @discardableResult
     public func enqueuePDF(paperID: UUID, operation: String, version: Int? = nil) throws -> UUID {
         guard let paper = paper(id: paperID), ["download", "extract"].contains(operation) else { throw LibraryError.missingRecord }
-        let version = version ?? paper.resolvedVersion ?? pdfRecords(paperID: paperID).first?.version
+        let version = version ?? paper.resolvedVersion ?? pdfRecords(paperID: paperID).first?.version ?? (paper.provider == "doi" ? 1 : nil)
         guard let version, version > 0 else { throw PDFLibraryError.invalidSource }
         if let active = pdfJobs.first(where: { $0.paperID == paperID && $0.version == version && $0.operation == operation && [.pending, .inProgress].contains($0.state) }) { return active.id }
         var source: String?
         if operation == "download" {
-            guard paper.provider == "arxiv", let rawID = paper.providerIdentifier,
-                  let id = try? ArxivIdentifier(rawID + "v\(version)") else { throw PDFLibraryError.invalidSource }
-            source = id.pdfURL.absoluteString
+            if paper.provider == "arxiv", let rawID = paper.providerIdentifier, let id = try? ArxivIdentifier(rawID + "v\(version)") {
+                source = id.pdfURL.absoluteString
+            } else if paper.provider == "doi", let url = paper.pdfDownloadURL { source = url.absoluteString }
+            else { throw PDFLibraryError.invalidSource }
         } else { guard pdfRecords(paperID: paperID).contains(where: { $0.version == version }) else { throw PDFLibraryError.missing } }
         return try commit {
             let job = PDFProcessingJob(paperID: paperID, version: version, operation: operation, sourceURL: source)

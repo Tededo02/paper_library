@@ -8,8 +8,10 @@ public struct DOIMetadata: Sendable, Equatable {
     public let publishedAt: Date?
     public let journalReference: String?
     public let categories: [String]
+    public let pdfURL: URL?
+    public let enrichmentComplete: Bool
 
-    public init(identifier: DOIIdentifier, title: String, authors: [String] = [], abstract: String = "", publishedAt: Date? = nil, journalReference: String? = nil, categories: [String] = []) throws {
+    public init(identifier: DOIIdentifier, title: String, authors: [String] = [], abstract: String = "", publishedAt: Date? = nil, journalReference: String? = nil, categories: [String] = [], pdfURL: URL? = nil, enrichmentComplete: Bool = false) throws {
         let title = DOIText.plain(title)
         guard !title.isEmpty else { throw DOIError.invalidResponse }
         self.identifier = identifier; self.title = title
@@ -17,6 +19,14 @@ public struct DOIMetadata: Sendable, Equatable {
         self.abstract = DOIText.plain(abstract); self.publishedAt = publishedAt
         self.journalReference = journalReference.map(DOIText.plain).flatMap { $0.isEmpty ? nil : $0 }
         self.categories = categories.map(DOIText.plain).filter { !$0.isEmpty }
+        self.pdfURL = pdfURL.flatMap(DOIPublicURL.validated)
+        self.enrichmentComplete = enrichmentComplete
+    }
+
+    func enriched(with details: DOIEnrichment) throws -> Self {
+        try Self(identifier: identifier, title: title, authors: authors, abstract: abstract.isEmpty ? details.abstract : abstract,
+            publishedAt: publishedAt, journalReference: journalReference, categories: categories,
+            pdfURL: details.pdfURL ?? pdfURL, enrichmentComplete: true)
     }
 }
 

@@ -1,6 +1,8 @@
 # Paper Library
 
-Native macOS app to organize research papers into courses, import from arXiv or local PDFs, read papers, take notes, and generate on-device AI summaries. Your library is stored locally.
+Native macOS app to organize research papers into courses, import from arXiv, DOI links or local PDFs, read papers, take notes, and generate on-device AI summaries. Your library is stored locally.
+
+DOI imports use Crossref or DataCite, with OpenAlex for missing abstracts and open PDF links. Select an existing DOI paper to recover additional details. Supported public PDFs can be downloaded in the app; **Get PDF from Publisher…** opens other copies, including papers requiring institutional access. **Attach PDF…** adds a downloaded file to the selected paper and preserves its notes and metadata.
 
 ![Paper Library screenshot](img/paper-library.png)
 

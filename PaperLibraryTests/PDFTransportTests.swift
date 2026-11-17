@@ -42,13 +42,14 @@ struct PDFTransportTests {
     }
     private let url = URL(string: "https://arxiv.org/pdf/1706.03762v1")!
 
-    @Test func streamsPDFBytesToDiskWithRealProgress() async throws {
+    @Test(arguments: ["https://arxiv.org/pdf/1706.03762v1", "https://www.mdpi.com/1424-8220/24/2/436/pdf"])
+    func streamsPDFBytesToDiskWithRealProgress(_ source: String) async throws {
         let (c, files, transport) = try setup(); defer { try? FileManager.default.removeItem(at: c.root) }
         let data = PDFFixtures.document()
         PDFStubProtocol.state.reset(PDFHTTPReply(headers: ["Content-Length": String(data.count)], body: data))
         let stage = try await files.stagingURL(jobID: UUID())
         let probe = PDFProgressProbe()
-        let reply = try await transport.transfer(url: url, staged: stage, limits: PDFLimits(), fileStore: files) { bytes, _ in await probe.update(bytes) }
+        let reply = try await transport.transfer(url: URL(string: source)!, staged: stage, limits: PDFLimits(), fileStore: files) { bytes, _ in await probe.update(bytes) }
         let received = await probe.received
         #expect(reply.status == 200 && received == data.count)
         #expect(try Data(contentsOf: stage) == data)

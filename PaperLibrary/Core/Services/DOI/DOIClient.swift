@@ -12,7 +12,18 @@ public enum DOINetworkPolicy {
         return URL(string: "https://\(datacite ? "api.datacite.org/dois" : "api.crossref.org/works")/\(encoded)")!
     }
 
+    public static func enrichmentEndpoint(for identifier: DOIIdentifier) -> URL {
+        let encoded = identifier.canonical.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
+        return URL(string: "https://api.openalex.org/works/https://doi.org/\(encoded)")!
+    }
+
     public static func validate(_ url: URL) throws {
+        if let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), parts.host == "api.openalex.org" {
+            let prefix = "/works/https://doi.org/"
+            guard parts.path.hasPrefix(prefix), let id = try? DOIIdentifier(String(parts.path.dropFirst(prefix.count))),
+                  enrichmentEndpoint(for: id) == url else { throw DOIError.invalidIdentifier }
+            return
+        }
         guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), parts.scheme == "https",
               parts.user == nil, parts.password == nil, parts.port == nil, parts.query == nil, parts.fragment == nil,
               let prefix = ["api.crossref.org": "/works/", "api.datacite.org": "/dois/"][parts.host ?? ""],
@@ -75,21 +86,31 @@ public actor DOIClient: DOIMetadataProviding {
     private let transport: any DOITransport
     private let clock: any ArxivClock
     private var nextRequest: TimeInterval = 0
+    private let enrichmentEnabled: Bool
 
-    public init(transport: any DOITransport = DOIURLSessionTransport(), clock: any ArxivClock = SystemArxivClock()) {
-        self.transport = transport; self.clock = clock
+    public init(transport: any DOITransport = DOIURLSessionTransport(), clock: any ArxivClock = SystemArxivClock(), enrichmentEnabled: Bool = true) {
+        self.transport = transport; self.clock = clock; self.enrichmentEnabled = enrichmentEnabled
     }
 
     public func fetch(_ identifier: DOIIdentifier) async throws -> DOIMetadata {
         let crossref = try await request(DOINetworkPolicy.endpoint(for: identifier))
+        let metadata: DOIMetadata
         if crossref.status == 404 {
             let datacite = try await request(DOINetworkPolicy.endpoint(for: identifier, datacite: true))
             guard datacite.status != 404 else { throw DOIError.notFound }
             guard datacite.status == 200 else { throw DOIError.http(datacite.status) }
-            return try DOIMetadataParser.datacite(datacite.body, requested: identifier)
+            metadata = try DOIMetadataParser.datacite(datacite.body, requested: identifier)
+        } else {
+            guard crossref.status == 200 else { throw DOIError.http(crossref.status) }
+            metadata = try DOIMetadataParser.crossref(crossref.body, requested: identifier)
         }
-        guard crossref.status == 200 else { throw DOIError.http(crossref.status) }
-        return try DOIMetadataParser.crossref(crossref.body, requested: identifier)
+        guard enrichmentEnabled else { return metadata }
+        do {
+            let response = try await request(DOINetworkPolicy.enrichmentEndpoint(for: identifier))
+            guard response.status == 200 else { return metadata }
+            return try metadata.enriched(with: OpenAlexParser.parse(response.body, requested: identifier))
+        } catch is CancellationError { throw CancellationError() }
+        catch { return metadata }
     }
 
     private func request(_ url: URL) async throws -> DOIHTTPResponse {

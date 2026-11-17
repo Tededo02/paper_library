@@ -551,3 +551,62 @@ struct PDFTests {
         #expect(PDFTextNormalizer.normalize(short).map(\.text) == short.map(\.text))
     }
 }
+
+extension PDFTests {
+    @Test func openAccessDOIPDFDownloadsAndExtractsUsingTheExistingPaper() async throws {
+        let c = try config(); defer { try? FileManager.default.removeItem(at: c.root) }
+        let repo = try LibraryRepository(store: LibraryStore.open(configuration: c))
+        try repo.enqueueImports(ImportInput.parse("10.3390/s24020436"), destinationCourseID: nil, assignExisting: true, refreshMetadata: false)
+        let job = try #require(repo.importJobs.first)
+        try repo.beginImports(ids: [job.id])
+        let pdfURL = URL(string: "https://www.mdpi.com/1424-8220/24/2/436/pdf")!
+        try repo.completeImport(id: job.id, metadata: DOIMetadata(identifier: DOIIdentifier("10.3390/s24020436"), title: "DOI paper", pdfURL: pdfURL, enrichmentComplete: true))
+        let paper = try #require(repo.papers.first)
+        try repo.saveNotes(paperID: paper.id, notes: "Retain my notes")
+        let pdfs = coordinator(repo, transport: FixturePDFTransport())
+        #expect(paper.pdfDownloadURL == pdfURL)
+        try pdfs.enqueue(paperID: paper.id)
+        await pdfs.waitUntilIdle()
+        let record = try #require(repo.pdfRecords(paperID: paper.id).first)
+        #expect(record.version == 1 && record.indexStatus == "chunksReady" && repo.papers.count == 1)
+        #expect(paper.provider == "doi" && paper.notes == "Retain my notes")
+    }
+
+    @Test func attachingPublisherPDFKeepsDOIMetadataAndAllPreviousPDFs() async throws {
+        let c = try config(); defer { try? FileManager.default.removeItem(at: c.root) }
+        let repo = try LibraryRepository(store: LibraryStore.open(configuration: c))
+        let queue = ImportCoordinator(repository: repo, provider: FixtureArxivProvider(), doiProvider: FixtureDOIProvider())
+        try queue.enqueue(text: "10.1109/icarm65671.2025.11293737", destinationCourseID: nil, assignExisting: true, refreshMetadata: false)
+        await queue.waitUntilIdle()
+        let paper = try #require(repo.papers.first)
+        try repo.saveNotes(paperID: paper.id, notes: "Personal annotations")
+        try repo.setFavorite(true, paperIDs: [paper.id])
+        let pdfs = coordinator(repo, transport: FixturePDFTransport())
+        let source = c.root.appendingPathComponent("publisher.pdf")
+        try PDFFixtures.document().write(to: source)
+        let draft = PaperDraft(title: paper.title, authors: paper.authors, abstract: paper.abstract, doi: paper.doi)
+        #expect(try await pdfs.importLocalPDF(from: source, draft: draft, attachingTo: paper.id) == paper.id)
+        await pdfs.waitUntilIdle()
+        let first = try #require(repo.pdfRecords(paperID: paper.id).first)
+        #expect(first.indexStatus == "chunksReady" && repo.papers.count == 1 && paper.provider == "doi")
+        _ = try await pdfs.importLocalPDF(from: source, draft: draft, attachingTo: paper.id)
+        #expect(repo.pdfRecords(paperID: paper.id).count == 1)
+        try PDFFixtures.document(pages: ["A different downloaded copy"]).write(to: source)
+        _ = try await pdfs.importLocalPDF(from: source, draft: draft, attachingTo: paper.id)
+        await pdfs.waitUntilIdle()
+        #expect(repo.pdfRecords(paperID: paper.id).count == 2 && repo.papers.count == 1)
+        _ = try await pdfs.files.verifiedURL(first.fileReference)
+        #expect(paper.notes == "Personal annotations" && paper.isFavorite && paper.title == draft.title && paper.doi == draft.doi)
+        await #expect(throws: LibraryError.missingRecord) { try await pdfs.importLocalPDF(from: source, draft: draft, attachingTo: UUID()) }
+    }
+
+    @Test func DOIFilePolicyAllowsKnownPublicPDFsAndRetainsArxivVersionChecks() throws {
+        for value in ["https://www.mdpi.com/1424-8220/24/2/436/pdf?version=1704898430", "https://mdpi-res.com/d_attachment/sensors/paper.pdf", "https://pmc.ncbi.nlm.nih.gov/articles/PMC10821337/pdf/sensors-24-00436.pdf", "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.1234567&type=print"] {
+            #expect(PDFSourcePolicy.canDownload(URL(string: value)!))
+        }
+        for value in ["https://evil.test/paper.pdf", "https://www.mdpi.com/../private/pdf", "https://www.mdpi.com/private/pdf?url=https://localhost", "https://www.mdpi.com/profile", "https://pmc.ncbi.nlm.nih.gov/articles/PMC10821337", "https://arxiv.org/pdf/1706.03762"] {
+            #expect(!PDFSourcePolicy.canDownload(URL(string: value)!))
+        }
+        #expect(throws: PDFLibraryError.invalidSource) { try PDFSourcePolicy.validateDownload(URL(string: "https://arxiv.org/pdf/1706.03762v1")!, version: 2) }
+    }
+}

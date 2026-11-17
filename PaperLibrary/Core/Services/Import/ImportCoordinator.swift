@@ -13,6 +13,7 @@ public final class ImportCoordinator {
     private let doiProvider: any DOIMetadataProviding
     private var worker: Task<Void, Never>?
     private var shuttingDown = false
+    private var attemptedDOIRepairs: Set<UUID> = []
 
     public init(repository: LibraryRepository, provider: any ArxivMetadataProviding, doiProvider: any DOIMetadataProviding = DOIClient()) {
         self.repository = repository; self.provider = provider; self.doiProvider = doiProvider
@@ -29,6 +30,15 @@ public final class ImportCoordinator {
     public func retry(ids: Set<UUID>, destinationCourseID: UUID?, assignExisting: Bool, refreshMetadata: Bool) throws {
         try repository.retryImports(ids: ids, destinationCourseID: destinationCourseID, assignExisting: assignExisting, refreshMetadata: refreshMetadata)
         start()
+    }
+
+    public func recoverDOIDetails(paperID: UUID, force: Bool = false) throws {
+        guard let paper = repository.paper(id: paperID), paper.provider == "doi",
+              let raw = paper.providerIdentifier, let identifier = try? DOIIdentifier(raw) else { return }
+        guard force || (paper.metadataStatusRaw != "doiEnriched" && !attemptedDOIRepairs.contains(paperID)) else { return }
+        guard !repository.importJobs.contains(where: { $0.identifier?.doiIdentifier == identifier && [.pending, .inProgress].contains($0.state) }) else { return }
+        try enqueue(text: identifier.canonical, destinationCourseID: nil, assignExisting: false, refreshMetadata: true)
+        attemptedDOIRepairs.insert(paperID)
     }
 
     public func cancel(batchID: UUID) throws {

@@ -13,6 +13,17 @@ public enum ReadingStatus: String, CaseIterable, Codable, Sendable {
 
 extension Paper {
     public var readingStatus: ReadingStatus { ReadingStatus(rawValue: readingStatusRaw) ?? .toRead }
+    public var pdfDownloadURL: URL? {
+        if provider == "arxiv", let raw = providerIdentifier, let version = resolvedVersion {
+            return try? ArxivIdentifier(raw + "v\(version)").pdfURL
+        }
+        guard provider == "doi", let url = pdfSourceURL.flatMap(URL.init(string:)), PDFSourcePolicy.canDownload(url) else { return nil }
+        return url
+    }
+    public var publisherPDFURL: URL? {
+        if let url = pdfSourceURL.flatMap(URL.init(string:)).flatMap(DOIPublicURL.validated) { return url }
+        return doi.flatMap { try? DOIIdentifier($0).canonicalURL }
+    }
 }
 
 public typealias ImportJob = LibrarySchemaV5.ImportJob

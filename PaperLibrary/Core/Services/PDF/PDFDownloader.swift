@@ -10,8 +10,18 @@ public protocol PDFTransport: Sendable {
     func transfer(url: URL, staged: URL, limits: PDFLimits, fileStore: PDFFileStore, progress: @escaping @Sendable (Int64, Int64?) async -> Void) async throws -> PDFTransferReply
 }
 
-private final class PDFRedirectGuard: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) { completionHandler(nil) }
+private final class PDFRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var redirects: [Int: Int] = [:]
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        let count = lock.withLock { redirects[task.taskIdentifier, default: 0] += 1; return redirects[task.taskIdentifier, default: 0] }
+        guard count <= 4, task.originalRequest?.url?.host != "arxiv.org", let url = request.url,
+              url.host != "arxiv.org", PDFSourcePolicy.canDownload(url) else { completionHandler(nil); return }
+        completionHandler(request)
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        _ = lock.withLock { redirects.removeValue(forKey: task.taskIdentifier) }
+    }
 }
 
 public final class PDFURLSessionTransport: PDFTransport {
@@ -27,14 +37,15 @@ public final class PDFURLSessionTransport: PDFTransport {
     deinit { session.invalidateAndCancel() }
 
     public func transfer(url: URL, staged: URL, limits: PDFLimits, fileStore: PDFFileStore, progress: @escaping @Sendable (Int64, Int64?) async -> Void) async throws -> PDFTransferReply {
-        _ = try PDFSourcePolicy.validate(url)
+        try PDFSourcePolicy.validateDownload(url)
         try await fileStore.validateStaged(staged)
         var request = URLRequest(url: url)
         request.setValue("PaperLibrary/0.3 (local.paperlibrary.app; personal PDF reader)", forHTTPHeaderField: "User-Agent")
         request.setValue("application/pdf", forHTTPHeaderField: "Accept")
         let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
-        guard let http = response as? HTTPURLResponse, http.url == url, !(300...399).contains(http.statusCode) else { throw PDFLibraryError.invalidSource }
+        guard let http = response as? HTTPURLResponse, let finalURL = http.url, PDFSourcePolicy.canDownload(finalURL),
+              (url.host != "arxiv.org" || finalURL == url), !(300...399).contains(http.statusCode) else { throw PDFLibraryError.invalidSource }
         let reply = PDFTransferReply(status: http.statusCode, retryAfter: ArxivNetworkPolicy.retryAfter(http.value(forHTTPHeaderField: "Retry-After")))
         guard http.statusCode == 200 else { return reply }
         let encoding = http.value(forHTTPHeaderField: "Content-Encoding")?.lowercased()
@@ -77,7 +88,8 @@ public actor PDFDownloader: PDFDownloading {
         self.files = files; self.scheduler = scheduler; self.transport = transport
     }
     public func download(url: URL, paperID: UUID, version: Int, jobID: UUID, limits: PDFLimits, progress: @escaping @Sendable (Int64, Int64?) async -> Void) async throws -> PDFFileReference {
-        guard try PDFSourcePolicy.validate(url).version == version else { throw PDFLibraryError.invalidSource }
+        guard version > 0 else { throw PDFLibraryError.invalidSource }
+        try PDFSourcePolicy.validateDownload(url, version: version)
         let staged = try await files.stagingURL(jobID: jobID)
         do {
             let transport = self.transport; let files = self.files
