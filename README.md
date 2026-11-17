@@ -1,6 +1,7 @@
 # Paper Library
 
-Native macOS app to organize research papers into courses, import from arXiv or local PDFs, read papers, take notes, and generate on-device AI summaries. Your library is stored locally; the interface is in English.
+Native macOS app to organize research papers into courses, import from arXiv, DOI links or local PDFs, read papers, take notes, and generate on-device AI summaries. Your library is stored locally.
+
 
 ![Paper Library screenshot](img/paper-library.png)
 

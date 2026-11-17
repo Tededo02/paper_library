@@ -183,7 +183,9 @@ public final class LibraryRepository {
 
     public func deletePapers(ids: Set<UUID>) throws {
         let selected = try selectedPapers(ids)
-        let identities = Set(selected.compactMap(\.providerIdentifier))
+        let identities = Set(selected.flatMap { paper in
+            [paper.identityKey] + (paper.doi.flatMap { try? DOIIdentifier($0) }.map { ["doi:\($0.canonical)"] } ?? [])
+        })
         try commit {
             for record in pdfRecords where ids.contains(record.paperID) { record.isRemoved = true; try deletePDFText(recordID: record.id) }
             for id in ids { for analysis in try analyses(paperID: id, limit: nil) { context.delete(analysis) } }
@@ -196,7 +198,7 @@ public final class LibraryRepository {
             }
             for job in importJobs {
                 if job.paperID.map(ids.contains) == true { job.paperID = nil }
-                if job.canonicalIdentifier.map(identities.contains) == true && [.pending, .inProgress].contains(job.state) {
+                if job.identifier.map({ identities.contains($0.identityKey) }) == true && [.pending, .inProgress].contains(job.state) {
                     job.stateRaw = ImportJobState.cancelled.rawValue
                     job.updatedAt = Date()
                 }

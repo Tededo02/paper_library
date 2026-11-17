@@ -21,6 +21,7 @@ let package = Package(
         ),
         .executableTarget(name: "StorageChecks", dependencies: ["PaperLibrarySupport"], path: "Verification/StorageChecks"),
         .executableTarget(name: "ArxivLiveCheck", dependencies: ["PaperLibraryCore", "PaperLibrarySupport"], path: "Verification/ArxivLiveCheck"),
+        .executableTarget(name: "DOILiveCheck", dependencies: ["PaperLibraryCore", "PaperLibrarySupport"], path: "Verification/DOILiveCheck"),
         .executableTarget(name: "PDFLiveCheck", dependencies: ["PaperLibraryCore", "PaperLibrarySupport"], path: "Verification/PDFLiveCheck"),
         .executableTarget(name: "AILiveCheck", dependencies: ["PaperLibraryCore", "PaperLibrarySupport"], path: "Verification/AILiveCheck"),
         .testTarget(name: "PaperLibraryTests", dependencies: ["PaperLibraryCore", "PaperLibrarySupport", "PaperLibraryUI"], path: "PaperLibraryTests")

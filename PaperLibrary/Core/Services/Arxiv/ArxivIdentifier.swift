@@ -66,18 +66,27 @@ public struct ArxivIdentifier: Hashable, Sendable {
 
 public struct ImportInput: Sendable {
     public let raw: String
-    public let identifier: ArxivIdentifier?
+    public let identifier: ImportIdentifier?
     public let error: String?
 
     public static func parse(_ text: String) throws -> [Self] {
         guard text.utf8.count <= 65_536 else { throw ArxivError.responseTooLarge }
-        let tokens = text.split { $0.isWhitespace || $0 == "," }.map(String.init)
+        let separated = text.replacingOccurrences(of: "\\:", with: ":").replacingOccurrences(
+            of: #",(?=(?:https?://|doi:|arxiv:|10\.[0-9]{4,9}/|[0-9]{4}\.[0-9]{4,5}))"#,
+            with: " ", options: [.regularExpression, .caseInsensitive])
+        let tokens = separated.split(whereSeparator: \.isWhitespace).flatMap { part -> [String] in
+            let token = String(part)
+            if (try? DOIIdentifier(token.trimmingCharacters(in: CharacterSet(charactersIn: ",")))) != nil {
+                return [token.trimmingCharacters(in: CharacterSet(charactersIn: ","))]
+            }
+            return token.split(separator: ",").map(String.init)
+        }
         guard !tokens.isEmpty else { throw ArxivError.invalidIdentifier }
         guard tokens.count <= 500 else { throw ArxivError.responseTooLarge }
         var seen = Set<String>()
         return tokens.compactMap { token in
             do {
-                let identifier = try ArxivIdentifier(token)
+                let identifier = try ImportIdentifier(token)
                 guard seen.insert(identifier.queryValue).inserted else { return nil }
                 return Self(raw: token, identifier: identifier, error: nil)
             } catch {

@@ -25,9 +25,9 @@ public enum ImportJobState: String, CaseIterable, Sendable {
 
 extension ImportJob {
     public var state: ImportJobState { ImportJobState(rawValue: stateRaw) ?? .failed }
-    public var identifier: ArxivIdentifier? {
+    public var identifier: ImportIdentifier? {
         guard let canonicalIdentifier else { return nil }
-        return try? ArxivIdentifier(canonicalIdentifier + requestedVersion.map { "v\($0)" }.orEmpty)
+        return try? ImportIdentifier(canonicalIdentifier + requestedVersion.map { "v\($0)" }.orEmpty)
     }
 }
 

@@ -3,7 +3,7 @@ import PaperLibrarySupport
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum ImportSource { case arxiv, pdf }
+private enum ImportSource { case link, pdf }
 
 struct ImportView: View {
     @Bindable var coordinator: ImportCoordinator
@@ -18,7 +18,7 @@ struct ImportView: View {
     @State private var batch: UUID?
     @State private var historyLimit = 100
     @State private var showingActivity: Bool
-    @State private var source: ImportSource = .arxiv
+    @State private var source: ImportSource = .link
     @State private var showFilePicker = false
     @State private var selectedURL: URL?
     @State private var metadata: LocalPDFMetadata?
@@ -53,7 +53,7 @@ struct ImportView: View {
     }
     private var activeBatches: Set<UUID> { Set(jobs.filter { [.pending, .inProgress].contains($0.state) }.map(\.batchID)) }
     private var canAdd: Bool {
-        if source == .arxiv { return !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if source == .link { return !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return metadata != nil && !pdfTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !inspectingPDF && !recoveringMetadata && !addingPDF && !pdfs.isImporting
     }
 
@@ -63,20 +63,20 @@ struct ImportView: View {
             if showingActivity { activity }
             else {
                 Picker(Strings.text("import.source"), selection: $source) {
-                    Text(Strings.text("import.arxivSource")).tag(ImportSource.arxiv)
+                    Text(Strings.text("import.linkSource")).tag(ImportSource.link)
                     Text(Strings.text("import.pdfSource")).tag(ImportSource.pdf)
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 280).frame(maxWidth: .infinity).disabled(addingPDF)
-                if source == .arxiv { arxivInput }
+                if source == .link { linkInput }
                 else { pdfInput }
                 if !repository.courses.isEmpty { destinationPicker }
-                if source == .arxiv { DisclosureGroup(Strings.text("action.options")) {
+                if source == .link { DisclosureGroup(Strings.text("action.options")) {
                     VStack(alignment: .leading, spacing: 10) {
                         Toggle(Strings.text("import.assignExisting"), isOn: $assignExisting).disabled(destination == nil)
                         Toggle(Strings.text("import.refresh"), isOn: $refreshMetadata)
                     }.font(.callout).padding(.top, 10)
                 }.font(.callout) }
             }
-            if let message = error ?? (showingActivity || source == .arxiv ? coordinator.errorMessage : nil) { Text(message).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
+            if let message = error ?? (showingActivity || source == .link ? coordinator.errorMessage : nil) { Text(message).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
             HStack {
                 if showingActivity {
                     Button(Strings.text("import.new")) { batch = nil; input = ""; showingActivity = false }
@@ -88,7 +88,7 @@ struct ImportView: View {
                 Button(Strings.text(showingActivity ? "action.done" : "action.cancel")) { localTask?.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
                 if !showingActivity {
                     Button(Strings.text(addingPDF ? "import.addingPDF" : "action.add")) {
-                        if source == .arxiv { enqueue() } else { addPDF() }
+                        if source == .link { enqueue() } else { addPDF() }
                     }.keyboardShortcut(.defaultAction).disabled(!canAdd)
                 }
             }
@@ -143,7 +143,7 @@ struct ImportView: View {
         }
     }
 
-    private var arxivInput: some View {
+    private var linkInput: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(Strings.text("import.hint")).foregroundStyle(.secondary)
             TextEditor(text: $input).font(.body).frame(height: 110).padding(8)

@@ -6,6 +6,11 @@ extension LibraryRepository {
     public func existingPaper(for identifier: ArxivIdentifier) -> Paper? {
         papers.first { $0.identityKey == "arxiv:\(identifier.canonical)" }
     }
+    public func existingPaper(for identifier: ImportIdentifier) -> Paper? {
+        if let exact = papers.first(where: { $0.identityKey == identifier.identityKey }) { return exact }
+        guard let doi = identifier.doiIdentifier else { return nil }
+        return papers.first { $0.doi.flatMap { try? DOIIdentifier($0) } == doi }
+    }
 
     @discardableResult
     public func enqueueImports(_ inputs: [ImportInput], destinationCourseID: UUID?, assignExisting: Bool, refreshMetadata: Bool) throws -> UUID {
@@ -50,10 +55,11 @@ extension LibraryRepository {
 
     func completeImport(id: UUID, metadata: ArxivMetadata) throws {
         guard let job = importJob(id: id), job.state == .inProgress else { return }
-        guard let requested = job.identifier, metadata.identifier.canonical == requested.canonical else { throw ArxivError.invalidFeed }
+        guard let requested = job.identifier?.arxivIdentifier, metadata.identifier.canonical == requested.canonical else { throw ArxivError.invalidFeed }
         guard requested.version == nil || requested.version == metadata.identifier.version else { throw ArxivError.wrongVersion }
         try commit {
-            let existing = existingPaper(for: requested)
+            let doiMatch = metadata.doi.flatMap { try? DOIIdentifier($0) }.flatMap { existingPaper(for: .doi($0)) }
+            let existing = existingPaper(for: requested) ?? doiMatch.flatMap { $0.provider == "arxiv" ? nil : $0 }
             let paper = existing ?? Paper(title: metadata.title, authors: metadata.authors, abstract: metadata.abstract)
             let isNew = existing == nil
             if isNew { context.insert(paper); paper.metadataUserEdited = false }
@@ -70,6 +76,38 @@ extension LibraryRepository {
                 paper.categories = metadata.categories
                 paper.pdfSourceURL = metadata.hasPDF ? metadata.identifier.pdfURL.absoluteString : nil
                 paper.metadataStatusRaw = "fetched"; paper.updatedAt = Date()
+            }
+            try assignImportedPaper(paper, job: job, isNew: isNew)
+            let outcome = isNew ? "imported" : (job.refreshMetadata ? (paper.metadataUserEdited ? "refreshedProtected" : "refreshed") : "existing")
+            complete(job, paper: paper, outcome: outcome)
+        }
+    }
+
+    func completeImport(id: UUID, metadata: DOIMetadata) throws {
+        guard let job = importJob(id: id), job.state == .inProgress else { return }
+        guard let requested = job.identifier?.doiIdentifier, metadata.identifier == requested else { throw DOIError.invalidResponse }
+        try commit {
+            let existing = existingPaper(for: .doi(requested))
+            let paper = existing ?? Paper(title: metadata.title, authors: metadata.authors, abstract: metadata.abstract)
+            let isNew = existing == nil
+            if isNew { context.insert(paper); paper.metadataUserEdited = false }
+            if isNew || job.refreshMetadata {
+                if !paper.metadataUserEdited {
+                    paper.title = metadata.title
+                    if !metadata.authors.isEmpty { paper.authors = metadata.authors }
+                    if !metadata.abstract.isEmpty { paper.abstract = metadata.abstract }
+                    paper.doi = requested.canonical
+                    if let journal = metadata.journalReference { paper.journalReference = journal }
+                }
+                if isNew || paper.provider == "doi" {
+                    paper.provider = "doi"; paper.providerIdentifier = requested.canonical
+                    paper.identityKey = "doi:\(requested.canonical)"
+                    paper.canonicalURL = requested.canonicalURL.absoluteString; paper.sourceURL = job.input
+                    if let date = metadata.publishedAt { paper.publicationDate = date }
+                    if !metadata.categories.isEmpty { paper.categories = metadata.categories }
+                    paper.metadataStatusRaw = "fetched"
+                }
+                paper.updatedAt = Date()
             }
             try assignImportedPaper(paper, job: job, isNew: isNew)
             let outcome = isNew ? "imported" : (job.refreshMetadata ? (paper.metadataUserEdited ? "refreshedProtected" : "refreshed") : "existing")

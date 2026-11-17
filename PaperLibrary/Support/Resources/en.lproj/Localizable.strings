@@ -114,7 +114,7 @@
 "job.interrupted" = "Interrupted";
 "import.title" = "Add Papers";
 "import.source" = "Import Source";
-"import.arxivSource" = "arXiv Link";
+"import.linkSource" = "arXiv / DOI Link";
 "import.pdfSource" = "PDF File";
 "import.choosePDF" = "Choose PDF…";
 "import.changePDF" = "Change…";
@@ -132,8 +132,14 @@
 "ai.noExtractedText" = "This PDF has no extractable text. You can read it or add an abstract in Edit Details to create a summary.";
 "import.history" = "Imports";
 "import.running" = "Importing…";
-"import.hint" = "Paste an arXiv link or ID. You can add more than one.";
-"import.input" = "arXiv URLs or IDs";
+"import.hint" = "Paste arXiv links, DOI links, or IDs. You can mix more than one.";
+"import.input" = "arXiv or DOI links and IDs";
+"import.invalidIdentifier" = "Invalid paper link or ID. Use an arXiv ID, a DOI, or an arxiv.org or doi.org link.";
+"doi.invalidResponse" = "The DOI service returned invalid metadata or a different DOI. No existing data was replaced.";
+"doi.redirectRejected" = "The DOI metadata service returned an unsupported redirect. The request was stopped.";
+"doi.notFound" = "No metadata was found for this DOI in Crossref or DataCite. Check the DOI or add the paper manually.";
+"doi.http" = "The DOI metadata service returned an HTTP error:";
+"doi.cooldown" = "The DOI service requires a wait before another request. Try again later.";
 "import.identified" = "identified";
 "import.duplicates" = "duplicates";
 "import.invalid" = "invalid";
@@ -152,8 +158,8 @@
 "import.interruptedHelp" = "The app or operation was interrupted. Use Retry to resume; papers already saved remain in the library.";
 "import.outcome.imported" = "New paper saved on this Mac";
 "import.outcome.existing" = "Existing paper reused; no metadata overwritten";
-"import.outcome.refreshed" = "arXiv metadata updated";
-"import.outcome.refreshedProtected" = "arXiv metadata updated; manual metadata edits preserved";
+"import.outcome.refreshed" = "Paper metadata updated";
+"import.outcome.refreshedProtected" = "Paper metadata updated; manual metadata edits preserved";
 "paper.arxiv" = "arXiv metadata · saved on this Mac";
 "paper.resolvedVersion" = "Retrieved Version";
 "import.moreHistory" = "Show Earlier Imports";

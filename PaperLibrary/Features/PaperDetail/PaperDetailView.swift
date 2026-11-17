@@ -31,12 +31,17 @@ struct PaperDetailView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(paper.title).font(.title2.weight(.semibold)).textSelection(.enabled)
                 Text(paper.authors.joined(separator: ", ")).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-                if let raw = paper.providerIdentifier, let identifier = try? ArxivIdentifier(raw) {
+                if paper.provider == "arxiv", let raw = paper.providerIdentifier, let identifier = try? ArxivIdentifier(raw) {
                     HStack {
                         Link("arXiv:\(identifier.canonical)", destination: identifier.canonicalURL)
                         if let date = paper.publicationDate {
                             Text(date, format: .dateTime.year()).foregroundStyle(.secondary)
                         }
+                    }.font(.caption)
+                } else if let raw = paper.doi, let identifier = try? DOIIdentifier(raw) {
+                    HStack {
+                        Link("DOI: \(identifier.canonical)", destination: identifier.canonicalURL)
+                        if let date = paper.publicationDate { Text(date, format: .dateTime.year()).foregroundStyle(.secondary) }
                     }.font(.caption)
                 }
             }
@@ -92,7 +97,10 @@ struct PaperDetailView: View {
                 DisclosureGroup(Strings.text("paper.publication")) {
                     VStack(alignment: .leading, spacing: 8) {
                         if let journal = paper.journalReference { Text(journal) }
-                        if let doi = paper.doi, !doi.isEmpty { Text("DOI: \(doi)") }
+                        if let doi = paper.doi, !doi.isEmpty {
+                            if let identifier = try? DOIIdentifier(doi) { Link("DOI: \(doi)", destination: identifier.canonicalURL) }
+                            else { Text("DOI: \(doi)") }
+                        }
                         if let version = paper.resolvedVersion { Text("arXiv v\(version)") }
                     }.font(.caption).foregroundStyle(.secondary).textSelection(.enabled).padding(.top, 8)
                 }.font(.callout)

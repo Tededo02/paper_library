@@ -10,11 +10,12 @@ public final class ImportCoordinator {
     public private(set) var activeBatchID: UUID?
     public private(set) var errorMessage: String?
     private let provider: any ArxivMetadataProviding
+    private let doiProvider: any DOIMetadataProviding
     private var worker: Task<Void, Never>?
     private var shuttingDown = false
 
-    public init(repository: LibraryRepository, provider: any ArxivMetadataProviding) {
-        self.repository = repository; self.provider = provider
+    public init(repository: LibraryRepository, provider: any ArxivMetadataProviding, doiProvider: any DOIMetadataProviding = DOIClient()) {
+        self.repository = repository; self.provider = provider; self.doiProvider = doiProvider
     }
 
     @discardableResult
@@ -75,12 +76,13 @@ public final class ImportCoordinator {
                     } catch { try repository.failImport(id: id, error: error) }
                 }
                 if networkIDs.isEmpty { continue }
-                let identifiers = networkIDs.compactMap { repository.importJob(id: $0)?.identifier }
+                let arxivIDs = networkIDs.filter { repository.importJob(id: $0)?.identifier?.arxivIdentifier != nil }
+                let identifiers = arxivIDs.compactMap { repository.importJob(id: $0)?.identifier?.arxivIdentifier }
                 do {
-                    let metadata = try await provider.fetch(identifiers)
+                    let metadata = identifiers.isEmpty ? [] : try await provider.fetch(identifiers)
                     try Task.checkCancellation()
-                    for id in networkIDs {
-                        guard let job = repository.importJob(id: id), job.state == .inProgress, let requested = job.identifier else { continue }
+                    for id in arxivIDs {
+                        guard let job = repository.importJob(id: id), job.state == .inProgress, let requested = job.identifier?.arxivIdentifier else { continue }
                         let matches = metadata.filter { $0.identifier.canonical == requested.canonical }
                         let record = requested.version.map { version in matches.first { $0.identifier.version == version } } ?? matches.max { ($0.identifier.version ?? 0) < ($1.identifier.version ?? 0) }
                         do {
@@ -92,7 +94,22 @@ public final class ImportCoordinator {
                     try repository.interruptImports(includePending: false)
                     return
                 } catch {
-                    for id in networkIDs { try repository.failImport(id: id, error: error) }
+                    for id in arxivIDs { try repository.failImport(id: id, error: error) }
+                }
+                for id in networkIDs {
+                    guard let job = repository.importJob(id: id), job.state == .inProgress, let identifier = job.identifier?.doiIdentifier else { continue }
+                    do {
+                        try Task.checkCancellation()
+                        if try repository.completeExistingImport(id: id) { continue }
+                        let metadata = try await doiProvider.fetch(identifier)
+                        try Task.checkCancellation()
+                        try repository.completeImport(id: id, metadata: metadata)
+                    } catch is CancellationError {
+                        try repository.interruptImports(includePending: false)
+                        return
+                    } catch {
+                        try repository.failImport(id: id, error: error)
+                    }
                 }
             }
         } catch {
